@@ -107,6 +107,13 @@ impl IClashTemp {
         Self::guard_port(&self.0)
     }
 
+    pub fn get_secret(&self) -> Option<String> {
+        self.0.get("secret").and_then(|value| match value {
+            Value::String(val_str) => Some(val_str.clone()),
+            _ => None,
+        })
+    }
+
     pub fn get_client_info(&self) -> ClashInfo {
         let config = &self.0;
 

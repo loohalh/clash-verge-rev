@@ -1,4 +1,5 @@
 use crate::utils::dirs;
+use crate::utils::help::format_bytes_speed;
 use crate::{
     cmds,
     config::Config,
@@ -6,6 +7,8 @@ use crate::{
     utils::resolve::{self, VERSION},
 };
 use anyhow::Result;
+use futures::Stream;
+use futures::StreamExt;
 use image::{ImageBuffer, Rgba};
 use imageproc::drawing::draw_text_mut;
 use once_cell::sync::OnceCell;
@@ -22,10 +25,13 @@ use tauri::{
     menu::{MenuEvent, MenuItem, PredefinedMenuItem, Submenu},
     Wry,
 };
+use tokio::sync::broadcast;
+use tokio_tungstenite::tungstenite::Message;
 
 use super::handle;
 pub struct Tray {
     pub speed_rate: Arc<RwLock<Option<SpeedRate>>>,
+    shutdown_tx: Arc<RwLock<Option<broadcast::Sender<()>>>>,
 }
 
 impl Tray {
@@ -34,12 +40,14 @@ impl Tray {
 
         TRAY.get_or_init(|| Tray {
             speed_rate: Arc::new(RwLock::new(None)),
+            shutdown_tx: Arc::new(RwLock::new(None)),
         })
     }
 
     pub fn init(&self) -> Result<()> {
         let mut speed_rate = self.speed_rate.write();
         *speed_rate = Some(SpeedRate::new());
+
         Ok(())
     }
 
@@ -113,13 +121,12 @@ impl Tray {
         Ok(())
     }
 
-    /// 在图标上添加速率显示
+    /// 在图标上添��速率显示
     fn add_speed_text(icon: Vec<u8>, up_text: String, down_text: String) -> Result<Vec<u8>> {
         // 加载原始图标
         let img = image::load_from_memory(&icon)?;
         let (width, height) = (img.width(), img.height());
 
-        // 使用图标宽度的3.5倍作为画布宽度
         let mut image = ImageBuffer::new((width as f32 * 4.0) as u32, height);
 
         // 将原图绘制在左侧
@@ -337,7 +344,7 @@ impl Tray {
         speed_rate
             .as_ref()
             .and_then(|rate| rate.up_text.read().as_ref().cloned())
-            .unwrap_or_else(|| "↑0KB/s".to_string())
+            .unwrap_or_else(|| "0KB/s".to_string())
     }
 
     fn get_down_speed(&self) -> String {
@@ -345,7 +352,50 @@ impl Tray {
         speed_rate
             .as_ref()
             .and_then(|rate| rate.down_text.read().as_ref().cloned())
-            .unwrap_or_else(|| "↓0KB/s".to_string())
+            .unwrap_or_else(|| "0KB/s".to_string())
+    }
+
+    /// 订阅流量数据
+    pub async fn subscribe_traffic(&self) -> Result<()> {
+        // 创建用于关闭的广播通道
+        let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
+
+        // 保存发送端用于后续关闭
+        *self.shutdown_tx.write() = Some(shutdown_tx);
+
+        // 克隆需要的值
+        let speed_rate: Arc<
+            parking_lot::lock_api::RwLock<parking_lot::RawRwLock, Option<SpeedRate>>,
+        > = self.speed_rate.clone();
+
+        // 启动监听任务
+        tauri::async_runtime::spawn(async move {
+            let mut shutdown = shutdown_rx;
+
+            if let Ok(mut stream) = get_traffic_stream().await {
+                loop {
+                    tokio::select! {
+                        Some(traffic) = stream.next() => {
+                            if let Ok(traffic) = traffic {
+                                if let Some(rate) = speed_rate.read().as_ref() {
+                                    rate.update_traffic(traffic.up, traffic.down);
+                                }
+                            }
+                        }
+                        _ = shutdown.recv() => break,
+                    }
+                }
+            }
+        });
+
+        Ok(())
+    }
+
+    /// 取消订阅 traffic 数据
+    pub fn unsubscribe_traffic(&self) {
+        if let Some(tx) = self.shutdown_tx.write().take() {
+            drop(tx); // 发送端被丢弃时会自动发送关闭信号
+        }
     }
 }
 
@@ -542,6 +592,17 @@ impl SpeedRate {
             down_text: Arc::new(RwLock::new(None)),
         }
     }
+
+    /// 更新流量数据
+    pub fn update_traffic(&self, up: u64, down: u64) {
+        // 更新上传速率
+        let mut up_text = self.up_text.write();
+        *up_text = Some(format_bytes_speed(up));
+
+        // 更新下载速率
+        let mut down_text = self.down_text.write();
+        *down_text = Some(format_bytes_speed(down));
+    }
 }
 
 fn on_menu_event(_: &AppHandle, event: MenuEvent) {
@@ -566,4 +627,63 @@ fn on_menu_event(_: &AppHandle, event: MenuEvent) {
         }
         _ => {}
     }
+}
+
+#[derive(Debug)]
+pub struct Traffic {
+    pub up: u64,
+    pub down: u64,
+}
+
+async fn get_traffic_stream() -> Result<impl Stream<Item = Result<Traffic, anyhow::Error>>> {
+    use futures::stream::{self, StreamExt};
+    use std::time::Duration;
+
+    let stream = Box::pin(
+        stream::unfold((), |_| async {
+            loop {
+                // 获取配置
+                let config_guard = Config::clash().latest().clone();
+                let port = config_guard.get_mixed_port();
+                let secret = config_guard.get_secret();
+
+                // 构建 websocket URL
+                let ws_url = if let Some(token) = secret {
+                    format!("ws://127.0.0.1:{}/traffic?token={}", port, token)
+                } else {
+                    format!("ws://127.0.0.1:{}/traffic", port)
+                };
+
+                // 尝试建立连接
+                match tokio_tungstenite::connect_async(&ws_url).await {
+                    Ok((ws_stream, _)) => {
+                        println!("WebSocket connection established");
+                        // 返回 websocket 流
+                        return Some((
+                            ws_stream.map(|msg| {
+                                msg.map_err(anyhow::Error::from).and_then(|msg: Message| {
+                                    let data = msg.into_text()?;
+                                    let json: serde_json::Value = serde_json::from_str(&data)?;
+                                    Ok(Traffic {
+                                        up: json["up"].as_u64().unwrap_or(0),
+                                        down: json["down"].as_u64().unwrap_or(0),
+                                    })
+                                })
+                            }),
+                            (),
+                        ));
+                    }
+                    Err(e) => {
+                        println!("WebSocket connection failed: {}", e);
+                        // 连接失败后等待一段时间再重试
+                        tokio::time::sleep(Duration::from_secs(5)).await;
+                        continue;
+                    }
+                }
+            }
+        })
+        .flatten(),
+    );
+
+    Ok(stream)
 }

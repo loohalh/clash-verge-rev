@@ -1,5 +1,5 @@
 use crate::config::*;
-use crate::core::{clash_api, handle, service};
+use crate::core::{clash_api, handle, service, tray};
 use crate::log_err;
 use crate::utils::dirs;
 use anyhow::{bail, Result};
@@ -75,6 +75,9 @@ impl CoreManager {
             log::info!(target: "app", "stop the core by service");
             service::stop_core_by_service().await?;
         }
+
+        // 流量订阅
+        tray::Tray::global().subscribe_traffic().await?;
         *running = false;
 
         Ok(())
@@ -96,6 +99,8 @@ impl CoreManager {
             service::run_core_by_service(&config_path).await?;
             *running = true;
         }
+
+        tray::Tray::global().unsubscribe_traffic();
         Ok(())
     }
 
