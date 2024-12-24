@@ -6,6 +6,13 @@ use crate::{
     utils::resolve::{self, VERSION},
 };
 use anyhow::Result;
+use image::{ImageBuffer, Rgba};
+use imageproc::drawing::draw_text_mut;
+use once_cell::sync::OnceCell;
+use parking_lot::RwLock;
+use rusttype::{Font, Scale};
+use std::io::Cursor;
+use std::sync::Arc;
 use tauri::AppHandle;
 use tauri::{
     menu::CheckMenuItem,
@@ -17,10 +24,26 @@ use tauri::{
 };
 
 use super::handle;
-pub struct Tray {}
+pub struct Tray {
+    pub speed_rate: Arc<RwLock<Option<SpeedRate>>>,
+}
 
 impl Tray {
-    pub fn create_systray() -> Result<()> {
+    pub fn global() -> &'static Tray {
+        static TRAY: OnceCell<Tray> = OnceCell::new();
+
+        TRAY.get_or_init(|| Tray {
+            speed_rate: Arc::new(RwLock::new(None)),
+        })
+    }
+
+    pub fn init(&self) -> Result<()> {
+        let mut speed_rate = self.speed_rate.write();
+        *speed_rate = Some(SpeedRate::new());
+        Ok(())
+    }
+
+    pub fn create_systray(&self) -> Result<()> {
         let app_handle = handle::Handle::global().app_handle().unwrap();
         let tray_incon_id = TrayIconId::new("main");
         let tray = app_handle.tray_by_id(&tray_incon_id).unwrap();
@@ -64,7 +87,7 @@ impl Tray {
     }
 
     /// 更新托盘菜单
-    pub fn update_menu() -> Result<()> {
+    pub fn update_menu(&self) -> Result<()> {
         let app_handle = handle::Handle::global().app_handle().unwrap();
         let verge = Config::verge().latest().clone();
         let system_proxy = verge.enable_system_proxy.as_ref().unwrap_or(&false);
@@ -90,8 +113,84 @@ impl Tray {
         Ok(())
     }
 
+    /// 在图标上添加速率显示
+    fn add_speed_text(icon: Vec<u8>, up_text: String, down_text: String) -> Result<Vec<u8>> {
+        // 加载原始图标
+        let img = image::load_from_memory(&icon)?;
+        let (width, height) = (img.width(), img.height());
+
+        // 使用图标宽度的3.5倍作为画布宽度
+        let mut image = ImageBuffer::new((width as f32 * 4.0) as u32, height);
+
+        // 将原图绘制在左侧
+        image::imageops::replace(&mut image, &img, 0, 0);
+
+        // 使用系统字体 (SF Mono)
+        let font =
+            Font::try_from_bytes(include_bytes!("../../assets/fonts/SFCompact.ttf")).unwrap();
+
+        // 调整渲染参数
+        let color = Rgba([220u8, 220u8, 220u8, 230u8]); // 更淡的白色，略微透明
+        let base_size = (height as f32 * 0.5) as f32; // 稍微减小字体大小
+        let scale = Scale::uniform(base_size);
+
+        // 计算文本宽度以实现右对齐
+
+        // 获取两个文本的宽度
+        let up_width = font
+            .layout(up_text.as_ref(), scale, rusttype::Point { x: 0.0, y: 0.0 })
+            .map(|g| g.position().x + g.unpositioned().h_metrics().advance_width)
+            .last()
+            .unwrap_or(0.0);
+
+        let down_width = font
+            .layout(
+                down_text.as_ref(),
+                scale,
+                rusttype::Point { x: 0.0, y: 0.0 },
+            )
+            .map(|g| g.position().x + g.unpositioned().h_metrics().advance_width)
+            .last()
+            .unwrap_or(0.0);
+
+        // 计算每个文本的右对齐位置
+        let right_margin = 8;
+        let canvas_width = width * 4;
+
+        // 为每个文本计算单独的x坐标以确保右对齐
+        let up_x = canvas_width as f32 - up_width - right_margin as f32;
+        let down_x = canvas_width as f32 - down_width - right_margin as f32;
+
+        // 绘制上行速率
+        draw_text_mut(
+            &mut image,
+            color,
+            up_x as i32,
+            1,
+            scale,
+            &font,
+            up_text.as_ref(),
+        );
+
+        // 绘制下行速率
+        draw_text_mut(
+            &mut image,
+            color,
+            down_x as i32,
+            height as i32 - (base_size as i32) - 1,
+            scale,
+            &font,
+            down_text.as_ref(),
+        );
+
+        let mut bytes: Vec<u8> = Vec::new();
+        let mut cursor = Cursor::new(&mut bytes);
+        image.write_to(&mut cursor, image::ImageFormat::Png)?;
+        Ok(bytes)
+    }
+
     /// 更新托盘图标
-    pub fn update_icon() -> Result<()> {
+    pub fn update_icon(&self) -> Result<()> {
         let app_handle = handle::Handle::global().app_handle().unwrap();
         let verge = Config::verge().latest().clone();
         let system_proxy = verge.enable_system_proxy.as_ref().unwrap_or(&false);
@@ -172,6 +271,9 @@ impl Tray {
         {
             let is_template =
                 crate::utils::help::is_monochrome_image_from_bytes(&icon_bytes).unwrap_or(false);
+            let up_text = self.get_up_speed();
+            let down_text = self.get_down_speed();
+            let icon_bytes = Self::add_speed_text(icon_bytes, up_text, down_text)?;
             let _ = tray.set_icon(Some(tauri::image::Image::from_bytes(&icon_bytes)?));
             let _ = tray.set_icon_as_template(is_template);
         }
@@ -183,7 +285,7 @@ impl Tray {
     }
 
     /// 更新托盘提示
-    pub fn update_tooltip() -> Result<()> {
+    pub fn update_tooltip(&self) -> Result<()> {
         let app_handle = handle::Handle::global().app_handle().unwrap();
         let use_zh = { Config::verge().latest().language == Some("zh".into()) };
         let version = VERSION.get().unwrap();
@@ -223,11 +325,27 @@ impl Tray {
         Ok(())
     }
 
-    pub fn update_part() -> Result<()> {
-        Self::update_menu()?;
-        Self::update_icon()?;
-        Self::update_tooltip()?;
+    pub fn update_part(&self) -> Result<()> {
+        self.update_menu()?;
+        self.update_icon()?;
+        self.update_tooltip()?;
         Ok(())
+    }
+
+    fn get_up_speed(&self) -> String {
+        let speed_rate = self.speed_rate.read();
+        speed_rate
+            .as_ref()
+            .and_then(|rate| rate.up_text.read().as_ref().cloned())
+            .unwrap_or_else(|| "↑0KB/s".to_string())
+    }
+
+    fn get_down_speed(&self) -> String {
+        let speed_rate = self.speed_rate.read();
+        speed_rate
+            .as_ref()
+            .and_then(|rate| rate.down_text.read().as_ref().cloned())
+            .unwrap_or_else(|| "↓0KB/s".to_string())
     }
 }
 
@@ -410,6 +528,20 @@ fn create_tray_menu(
         .build()
         .unwrap();
     Ok(menu)
+}
+
+pub struct SpeedRate {
+    pub up_text: Arc<RwLock<Option<String>>>,
+    pub down_text: Arc<RwLock<Option<String>>>,
+}
+
+impl SpeedRate {
+    pub fn new() -> Self {
+        Self {
+            up_text: Arc::new(RwLock::new(None)),
+            down_text: Arc::new(RwLock::new(None)),
+        }
+    }
 }
 
 fn on_menu_event(_: &AppHandle, event: MenuEvent) {
