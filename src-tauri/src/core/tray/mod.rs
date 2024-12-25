@@ -1,5 +1,7 @@
+pub mod speed_rate;
+pub use speed_rate::{SpeedRate, Traffic};
+
 use crate::utils::dirs;
-use crate::utils::help::format_bytes_speed;
 use crate::{
     cmds,
     config::Config,
@@ -121,7 +123,7 @@ impl Tray {
         Ok(())
     }
 
-    /// 在图标上添��速率显示
+    /// 在图标上添加速率显示
     fn add_speed_text(icon: Vec<u8>, up_text: String, down_text: String) -> Result<Vec<u8>> {
         // 加载原始图标
         let img = image::load_from_memory(&icon)?;
@@ -134,7 +136,7 @@ impl Tray {
 
         // 使用系统字体 (SF Mono)
         let font =
-            Font::try_from_bytes(include_bytes!("../../assets/fonts/SFCompact.ttf")).unwrap();
+            Font::try_from_bytes(include_bytes!("../../../assets/fonts/SFCompact.ttf")).unwrap();
 
         // 调整渲染参数
         let color = Rgba([220u8, 220u8, 220u8, 230u8]); // 更淡的白色，略微透明
@@ -160,7 +162,7 @@ impl Tray {
             .last()
             .unwrap_or(0.0);
 
-        // 计算每个文本的右对齐位置
+        // 计算个文本的右对齐位置
         let right_margin = 8;
         let canvas_width = width * 4;
 
@@ -215,12 +217,12 @@ impl Tray {
         let icon_bytes = if *system_proxy && !*tun_mode {
             #[cfg(target_os = "macos")]
             let mut icon = match tray_icon.as_str() {
-                "colorful" => include_bytes!("../../icons/tray-icon-sys.ico").to_vec(),
-                _ => include_bytes!("../../icons/tray-icon-sys-mono.ico").to_vec(),
+                "colorful" => include_bytes!("../../../icons/tray-icon-sys.ico").to_vec(),
+                _ => include_bytes!("../../../icons/tray-icon-sys-mono.ico").to_vec(),
             };
 
             #[cfg(not(target_os = "macos"))]
-            let mut icon = include_bytes!("../../icons/tray-icon-sys.ico").to_vec();
+            let mut icon = include_bytes!("../../../icons/tray-icon-sys.ico").to_vec();
             if *sysproxy_tray_icon {
                 let icon_dir_path = dirs::app_home_dir()?.join("icons");
                 let png_path = icon_dir_path.join("sysproxy.png");
@@ -235,8 +237,8 @@ impl Tray {
         } else if *tun_mode {
             #[cfg(target_os = "macos")]
             let mut icon = match tray_icon.as_str() {
-                "colorful" => include_bytes!("../../icons/tray-icon-tun.ico").to_vec(),
-                _ => include_bytes!("../../icons/tray-icon-tun-mono.ico").to_vec(),
+                "colorful" => include_bytes!("../../../icons/tray-icon-tun.ico").to_vec(),
+                _ => include_bytes!("../../../icons/tray-icon-tun-mono.ico").to_vec(),
             };
 
             #[cfg(not(target_os = "macos"))]
@@ -255,8 +257,8 @@ impl Tray {
         } else {
             #[cfg(target_os = "macos")]
             let mut icon = match tray_icon.as_str() {
-                "colorful" => include_bytes!("../../icons/tray-icon.ico").to_vec(),
-                _ => include_bytes!("../../icons/tray-icon-mono.ico").to_vec(),
+                "colorful" => include_bytes!("../../../icons/tray-icon.ico").to_vec(),
+                _ => include_bytes!("../../../icons/tray-icon-mono.ico").to_vec(),
             };
 
             #[cfg(not(target_os = "macos"))]
@@ -357,6 +359,7 @@ impl Tray {
 
     /// 订阅流量数据
     pub async fn subscribe_traffic(&self) -> Result<()> {
+        println!("subscribe_traffic");
         // 创建用于关闭的广播通道
         let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
 
@@ -377,6 +380,7 @@ impl Tray {
                     tokio::select! {
                         Some(traffic) = stream.next() => {
                             if let Ok(traffic) = traffic {
+                                dbg!(&traffic);
                                 if let Some(rate) = speed_rate.read().as_ref() {
                                     rate.update_traffic(traffic.up, traffic.down);
                                 }
@@ -393,6 +397,7 @@ impl Tray {
 
     /// 取消订阅 traffic 数据
     pub fn unsubscribe_traffic(&self) {
+        println!("unsubscribe_traffic");
         if let Some(tx) = self.shutdown_tx.write().take() {
             drop(tx); // 发送端被丢弃时会自动发送关闭信号
         }
@@ -580,31 +585,6 @@ fn create_tray_menu(
     Ok(menu)
 }
 
-pub struct SpeedRate {
-    pub up_text: Arc<RwLock<Option<String>>>,
-    pub down_text: Arc<RwLock<Option<String>>>,
-}
-
-impl SpeedRate {
-    pub fn new() -> Self {
-        Self {
-            up_text: Arc::new(RwLock::new(None)),
-            down_text: Arc::new(RwLock::new(None)),
-        }
-    }
-
-    /// 更新流量数据
-    pub fn update_traffic(&self, up: u64, down: u64) {
-        // 更新上传速率
-        let mut up_text = self.up_text.write();
-        *up_text = Some(format_bytes_speed(up));
-
-        // 更新下载速率
-        let mut down_text = self.down_text.write();
-        *down_text = Some(format_bytes_speed(down));
-    }
-}
-
 fn on_menu_event(_: &AppHandle, event: MenuEvent) {
     match event.id.as_ref() {
         mode @ ("rule_mode" | "global_mode" | "direct_mode") => {
@@ -629,12 +609,6 @@ fn on_menu_event(_: &AppHandle, event: MenuEvent) {
     }
 }
 
-#[derive(Debug)]
-pub struct Traffic {
-    pub up: u64,
-    pub down: u64,
-}
-
 async fn get_traffic_stream() -> Result<impl Stream<Item = Result<Traffic, anyhow::Error>>> {
     use futures::stream::{self, StreamExt};
     use std::time::Duration;
@@ -643,16 +617,17 @@ async fn get_traffic_stream() -> Result<impl Stream<Item = Result<Traffic, anyho
         stream::unfold((), |_| async {
             loop {
                 // 获取配置
-                let config_guard = Config::clash().latest().clone();
-                let port = config_guard.get_mixed_port();
-                let secret = config_guard.get_secret();
+                let config = Config::clash().latest().clone();
+                let client_control = config.get_client_control();
+                let secret = config.get_secret();
 
                 // 构建 websocket URL
                 let ws_url = if let Some(token) = secret {
-                    format!("ws://127.0.0.1:{}/traffic?token={}", port, token)
+                    format!("ws://{}/traffic?token={}", client_control, token)
                 } else {
-                    format!("ws://127.0.0.1:{}/traffic", port)
+                    format!("ws://{}/traffic", client_control)
                 };
+                dbg!(&ws_url);
 
                 // 尝试建立连接
                 match tokio_tungstenite::connect_async(&ws_url).await {

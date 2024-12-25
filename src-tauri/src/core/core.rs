@@ -76,10 +76,9 @@ impl CoreManager {
             service::stop_core_by_service().await?;
         }
 
-        // 流量订阅
-        tray::Tray::global().subscribe_traffic().await?;
+        // 取消流量订阅
+        tray::Tray::global().unsubscribe_traffic();
         *running = false;
-
         Ok(())
     }
 
@@ -99,8 +98,9 @@ impl CoreManager {
             service::run_core_by_service(&config_path).await?;
             *running = true;
         }
+        // 流量订阅
+        tray::Tray::global().subscribe_traffic().await?;
 
-        tray::Tray::global().unsubscribe_traffic();
         Ok(())
     }
 
