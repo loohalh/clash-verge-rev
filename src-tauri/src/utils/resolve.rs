@@ -106,6 +106,10 @@ pub async fn resolve_setup(app: &mut App) {
     log_err!(tray::Tray::global().update_part());
     log_err!(hotkey::Hotkey::global().init());
     log_err!(timer::Timer::global().init());
+
+    // 每一秒更新一次tray icon
+    #[cfg(target_os = "macos")]
+    start_tray_icon_updater();
 }
 
 /// reset system proxy
@@ -349,4 +353,14 @@ pub async fn restore_public_dns() {
             log::error!(target: "app", "unset system dns failed: {err}");
         }
     }
+}
+
+#[cfg(target_os = "macos")]
+pub fn start_tray_icon_updater() {
+    let _ = tokio::spawn(async move {
+        loop {
+            let _ = tray::Tray::global().update_icon();
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        }
+    });
 }

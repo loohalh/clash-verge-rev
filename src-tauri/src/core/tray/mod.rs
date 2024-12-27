@@ -299,7 +299,6 @@ impl Tray {
                     tokio::select! {
                         Some(traffic) = stream.next() => {
                             if let Ok(traffic) = traffic {
-                                dbg!(&traffic);
                                 if let Some(rate) = speed_rate.read().as_ref() {
                                     rate.update_traffic(traffic.up, traffic.down);
                                 }

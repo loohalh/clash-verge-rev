@@ -8,7 +8,6 @@ use parking_lot::RwLock;
 use rusttype::{Font, Scale};
 use std::io::Cursor;
 use std::sync::Arc;
-use tauri_plugin_os::family;
 use tokio_tungstenite::tungstenite::Message;
 
 #[derive(Debug, Clone)]
@@ -32,8 +31,6 @@ impl SpeedRate {
 
     /// 在图标上添加速率显示
     pub fn add_speed_text(icon: Vec<u8>, up_text: String, down_text: String) -> Result<Vec<u8>> {
-        println!("family{}", family());
-
         // 加载原始图标
         let img = image::load_from_memory(&icon)?;
         let (width, height) = (img.width(), img.height());
