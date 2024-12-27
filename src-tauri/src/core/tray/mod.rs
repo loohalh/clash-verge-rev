@@ -9,14 +9,9 @@ use crate::{
     utils::resolve::{self, VERSION},
 };
 use anyhow::Result;
-use futures::Stream;
 use futures::StreamExt;
-use image::{ImageBuffer, Rgba};
-use imageproc::drawing::draw_text_mut;
 use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
-use rusttype::{Font, Scale};
-use std::io::Cursor;
 use std::sync::Arc;
 use tauri::AppHandle;
 use tauri::{
@@ -28,11 +23,11 @@ use tauri::{
     Wry,
 };
 use tokio::sync::broadcast;
-use tokio_tungstenite::tungstenite::Message;
 
 use super::handle;
 pub struct Tray {
     pub speed_rate: Arc<RwLock<Option<SpeedRate>>>,
+    #[cfg(target_os = "macos")]
     shutdown_tx: Arc<RwLock<Option<broadcast::Sender<()>>>>,
 }
 
@@ -42,6 +37,7 @@ impl Tray {
 
         TRAY.get_or_init(|| Tray {
             speed_rate: Arc::new(RwLock::new(None)),
+            #[cfg(target_os = "macos")]
             shutdown_tx: Arc::new(RwLock::new(None)),
         })
     }
@@ -49,7 +45,6 @@ impl Tray {
     pub fn init(&self) -> Result<()> {
         let mut speed_rate = self.speed_rate.write();
         *speed_rate = Some(SpeedRate::new());
-
         Ok(())
     }
 
@@ -121,81 +116,6 @@ impl Tray {
             *tun_mode,
         )?));
         Ok(())
-    }
-
-    /// 在图标上添加速率显示
-    fn add_speed_text(icon: Vec<u8>, up_text: String, down_text: String) -> Result<Vec<u8>> {
-        // 加载原始图标
-        let img = image::load_from_memory(&icon)?;
-        let (width, height) = (img.width(), img.height());
-
-        let mut image = ImageBuffer::new((width as f32 * 4.0) as u32, height);
-
-        // 将原图绘制在左侧
-        image::imageops::replace(&mut image, &img, 0, 0);
-
-        // 使用系统字体 (SF Mono)
-        let font =
-            Font::try_from_bytes(include_bytes!("../../../assets/fonts/SFCompact.ttf")).unwrap();
-
-        // 调整渲染参数
-        let color = Rgba([220u8, 220u8, 220u8, 230u8]); // 更淡的白色，略微透明
-        let base_size = (height as f32 * 0.5) as f32; // 稍微减小字体大小
-        let scale = Scale::uniform(base_size);
-
-        // 计算文本宽度以实现右对齐
-
-        // 获取两个文本的宽度
-        let up_width = font
-            .layout(up_text.as_ref(), scale, rusttype::Point { x: 0.0, y: 0.0 })
-            .map(|g| g.position().x + g.unpositioned().h_metrics().advance_width)
-            .last()
-            .unwrap_or(0.0);
-
-        let down_width = font
-            .layout(
-                down_text.as_ref(),
-                scale,
-                rusttype::Point { x: 0.0, y: 0.0 },
-            )
-            .map(|g| g.position().x + g.unpositioned().h_metrics().advance_width)
-            .last()
-            .unwrap_or(0.0);
-
-        // 计算个文本的右对齐位置
-        let right_margin = 8;
-        let canvas_width = width * 4;
-
-        // 为每个文本计算单独的x坐标以确保右对齐
-        let up_x = canvas_width as f32 - up_width - right_margin as f32;
-        let down_x = canvas_width as f32 - down_width - right_margin as f32;
-
-        // 绘制上行速率
-        draw_text_mut(
-            &mut image,
-            color,
-            up_x as i32,
-            1,
-            scale,
-            &font,
-            up_text.as_ref(),
-        );
-
-        // 绘制下行速率
-        draw_text_mut(
-            &mut image,
-            color,
-            down_x as i32,
-            height as i32 - (base_size as i32) - 1,
-            scale,
-            &font,
-            down_text.as_ref(),
-        );
-
-        let mut bytes: Vec<u8> = Vec::new();
-        let mut cursor = Cursor::new(&mut bytes);
-        image.write_to(&mut cursor, image::ImageFormat::Png)?;
-        Ok(bytes)
     }
 
     /// 更新托盘图标
@@ -282,7 +202,7 @@ impl Tray {
                 crate::utils::help::is_monochrome_image_from_bytes(&icon_bytes).unwrap_or(false);
             let up_text = self.get_up_speed();
             let down_text = self.get_down_speed();
-            let icon_bytes = Self::add_speed_text(icon_bytes, up_text, down_text)?;
+            let icon_bytes = SpeedRate::add_speed_text(icon_bytes, up_text, down_text)?;
             let _ = tray.set_icon(Some(tauri::image::Image::from_bytes(&icon_bytes)?));
             let _ = tray.set_icon_as_template(is_template);
         }
@@ -358,6 +278,7 @@ impl Tray {
     }
 
     /// 订阅流量数据
+    #[cfg(target_os = "macos")]
     pub async fn subscribe_traffic(&self) -> Result<()> {
         println!("subscribe_traffic");
         // 创建用于关闭的广播通道
@@ -367,15 +288,13 @@ impl Tray {
         *self.shutdown_tx.write() = Some(shutdown_tx);
 
         // 克隆需要的值
-        let speed_rate: Arc<
-            parking_lot::lock_api::RwLock<parking_lot::RawRwLock, Option<SpeedRate>>,
-        > = self.speed_rate.clone();
+        let speed_rate = self.speed_rate.clone();
 
         // 启动监听任务
         tauri::async_runtime::spawn(async move {
             let mut shutdown = shutdown_rx;
 
-            if let Ok(mut stream) = get_traffic_stream().await {
+            if let Ok(mut stream) = Traffic::get_traffic_stream().await {
                 loop {
                     tokio::select! {
                         Some(traffic) = stream.next() => {
@@ -396,6 +315,7 @@ impl Tray {
     }
 
     /// 取消订阅 traffic 数据
+    #[cfg(target_os = "macos")]
     pub fn unsubscribe_traffic(&self) {
         println!("unsubscribe_traffic");
         if let Some(tx) = self.shutdown_tx.write().take() {
@@ -607,58 +527,4 @@ fn on_menu_event(_: &AppHandle, event: MenuEvent) {
         }
         _ => {}
     }
-}
-
-async fn get_traffic_stream() -> Result<impl Stream<Item = Result<Traffic, anyhow::Error>>> {
-    use futures::stream::{self, StreamExt};
-    use std::time::Duration;
-
-    let stream = Box::pin(
-        stream::unfold((), |_| async {
-            loop {
-                // 获取配置
-                let config = Config::clash().latest().clone();
-                let client_control = config.get_client_control();
-                let secret = config.get_secret();
-
-                // 构建 websocket URL
-                let ws_url = if let Some(token) = secret {
-                    format!("ws://{}/traffic?token={}", client_control, token)
-                } else {
-                    format!("ws://{}/traffic", client_control)
-                };
-                dbg!(&ws_url);
-
-                // 尝试建立连接
-                match tokio_tungstenite::connect_async(&ws_url).await {
-                    Ok((ws_stream, _)) => {
-                        println!("WebSocket connection established");
-                        // 返回 websocket 流
-                        return Some((
-                            ws_stream.map(|msg| {
-                                msg.map_err(anyhow::Error::from).and_then(|msg: Message| {
-                                    let data = msg.into_text()?;
-                                    let json: serde_json::Value = serde_json::from_str(&data)?;
-                                    Ok(Traffic {
-                                        up: json["up"].as_u64().unwrap_or(0),
-                                        down: json["down"].as_u64().unwrap_or(0),
-                                    })
-                                })
-                            }),
-                            (),
-                        ));
-                    }
-                    Err(e) => {
-                        println!("WebSocket connection failed: {}", e);
-                        // 连接失败后等待一段时间再重试
-                        tokio::time::sleep(Duration::from_secs(5)).await;
-                        continue;
-                    }
-                }
-            }
-        })
-        .flatten(),
-    );
-
-    Ok(stream)
 }

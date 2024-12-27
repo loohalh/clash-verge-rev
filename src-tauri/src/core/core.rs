@@ -77,6 +77,7 @@ impl CoreManager {
         }
 
         // 取消流量订阅
+        #[cfg(target_os = "macos")]
         tray::Tray::global().unsubscribe_traffic();
         *running = false;
         Ok(())
@@ -99,6 +100,7 @@ impl CoreManager {
             *running = true;
         }
         // 流量订阅
+        #[cfg(target_os = "macos")]
         tray::Tray::global().subscribe_traffic().await?;
 
         Ok(())

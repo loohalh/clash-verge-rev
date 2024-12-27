@@ -168,39 +168,19 @@ impl IClashTemp {
 
     pub fn guard_mixed_port(config: &Mapping) -> u16 {
         let raw_value = config.get("mixed-port");
-        println!("mixed-port raw value: {:?}", raw_value);
 
         let mut port = raw_value
             .and_then(|value| match value {
-                Value::String(val_str) => {
-                    let parse_result = val_str.parse().ok();
-                    println!(
-                        "parsing string value '{}' result: {:?}",
-                        val_str, parse_result
-                    );
-                    parse_result
-                }
-                Value::Number(val_num) => {
-                    let convert_result = val_num.as_u64().map(|u| u as u16);
-                    println!(
-                        "converting number value {:?} result: {:?}",
-                        val_num, convert_result
-                    );
-                    convert_result
-                }
-                _ => {
-                    println!("unexpected value type: {:?}", value);
-                    None
-                }
+                Value::String(val_str) => val_str.parse().ok(),
+                Value::Number(val_num) => val_num.as_u64().map(|u| u as u16),
+                _ => None,
             })
             .unwrap_or(7897);
 
         if port == 0 {
-            println!("port was 0, using default 7897");
             port = 7897;
         }
 
-        println!("final mixed-port value: {}", port);
         port
     }
 
