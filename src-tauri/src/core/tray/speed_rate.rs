@@ -1,4 +1,4 @@
-use crate::config::Config;
+use crate::core::clash_api::get_traffic_ws_url;
 use crate::utils::help::format_bytes_speed;
 use anyhow::Result;
 use futures::Stream;
@@ -9,7 +9,6 @@ use rusttype::{Font, Scale};
 use std::io::Cursor;
 use std::sync::Arc;
 use tokio_tungstenite::tungstenite::Message;
-
 #[derive(Debug, Clone)]
 pub struct SpeedRate {
     pub up_text: Arc<RwLock<Option<String>>>,
@@ -118,16 +117,7 @@ impl Traffic {
             stream::unfold((), |_| async {
                 loop {
                     // 获取配置
-                    let config = Config::clash().latest().clone();
-                    let client_control = config.get_client_control();
-                    let secret = config.get_secret();
-
-                    // 构建 websocket URL
-                    let ws_url = if let Some(token) = secret {
-                        format!("ws://{}/traffic?token={}", client_control, token)
-                    } else {
-                        format!("ws://{}/traffic", client_control)
-                    };
+                    let ws_url = get_traffic_ws_url().unwrap();
 
                     // 尝试建立连接
                     match tokio_tungstenite::connect_async(&ws_url).await {
