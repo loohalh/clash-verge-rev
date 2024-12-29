@@ -1,4 +1,5 @@
 pub mod speed_rate;
+use speed_rate::Rate;
 pub use speed_rate::{SpeedRate, Traffic};
 
 use crate::utils::dirs;
@@ -11,7 +12,7 @@ use crate::{
 use anyhow::Result;
 use futures::StreamExt;
 use once_cell::sync::OnceCell;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use std::sync::Arc;
 use tauri::AppHandle;
 use tauri::{
@@ -26,7 +27,7 @@ use tokio::sync::broadcast;
 
 use super::handle;
 pub struct Tray {
-    pub speed_rate: Arc<RwLock<Option<SpeedRate>>>,
+    pub speed_rate: Arc<Mutex<Option<SpeedRate>>>,
     #[cfg(target_os = "macos")]
     shutdown_tx: Arc<RwLock<Option<broadcast::Sender<()>>>>,
 }
@@ -36,14 +37,14 @@ impl Tray {
         static TRAY: OnceCell<Tray> = OnceCell::new();
 
         TRAY.get_or_init(|| Tray {
-            speed_rate: Arc::new(RwLock::new(None)),
+            speed_rate: Arc::new(Mutex::new(None)),
             #[cfg(target_os = "macos")]
             shutdown_tx: Arc::new(RwLock::new(None)),
         })
     }
 
     pub fn init(&self) -> Result<()> {
-        let mut speed_rate = self.speed_rate.write();
+        let mut speed_rate = self.speed_rate.lock();
         *speed_rate = Some(SpeedRate::new());
         Ok(())
     }
@@ -119,7 +120,7 @@ impl Tray {
     }
 
     /// 更新托盘图标
-    pub fn update_icon(&self) -> Result<()> {
+    pub fn update_icon(&self, rate: Option<Rate>) -> Result<()> {
         let app_handle = handle::Handle::global().app_handle().unwrap();
         let verge = Config::verge().latest().clone();
         let system_proxy = verge.enable_system_proxy.as_ref().unwrap_or(&false);
@@ -200,9 +201,14 @@ impl Tray {
         {
             let is_template =
                 crate::utils::help::is_monochrome_image_from_bytes(&icon_bytes).unwrap_or(false);
-            let up_text = self.get_up_speed();
-            let down_text = self.get_down_speed();
-            let icon_bytes = SpeedRate::add_speed_text(icon_bytes, up_text, down_text)?;
+            // 如果rate为None，获取当前速率
+            let rate = rate.or_else(|| {
+                self.speed_rate
+                    .lock()
+                    .as_ref()
+                    .and_then(|speed_rate| speed_rate.get_curent_rate())
+            });
+            let icon_bytes = SpeedRate::add_speed_text(icon_bytes, rate)?;
             let _ = tray.set_icon(Some(tauri::image::Image::from_bytes(&icon_bytes)?));
             let _ = tray.set_icon_as_template(is_template);
         }
@@ -256,51 +262,32 @@ impl Tray {
 
     pub fn update_part(&self) -> Result<()> {
         self.update_menu()?;
-        self.update_icon()?;
+        self.update_icon(None)?;
         self.update_tooltip()?;
         Ok(())
-    }
-
-    fn get_up_speed(&self) -> String {
-        let speed_rate = self.speed_rate.read();
-        speed_rate
-            .as_ref()
-            .and_then(|rate| rate.up_text.read().as_ref().cloned())
-            .unwrap_or_else(|| "0KB/s".to_string())
-    }
-
-    fn get_down_speed(&self) -> String {
-        let speed_rate = self.speed_rate.read();
-        speed_rate
-            .as_ref()
-            .and_then(|rate| rate.down_text.read().as_ref().cloned())
-            .unwrap_or_else(|| "0KB/s".to_string())
     }
 
     /// 订阅流量数据
     #[cfg(target_os = "macos")]
     pub async fn subscribe_traffic(&self) -> Result<()> {
         println!("subscribe_traffic");
-        // 创建用于关闭的广播通道
         let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
-
-        // 保存发送端用于后续关闭
         *self.shutdown_tx.write() = Some(shutdown_tx);
 
-        // 克隆需要的值
-        let speed_rate = self.speed_rate.clone();
+        let speed_rate = Arc::clone(&self.speed_rate);
 
-        // 启动监听任务
         tauri::async_runtime::spawn(async move {
             let mut shutdown = shutdown_rx;
-
             if let Ok(mut stream) = Traffic::get_traffic_stream().await {
                 loop {
                     tokio::select! {
                         Some(traffic) = stream.next() => {
                             if let Ok(traffic) = traffic {
-                                if let Some(rate) = speed_rate.read().as_ref() {
-                                    rate.update_traffic(traffic.up, traffic.down);
+                                let guard = speed_rate.lock();
+                                if let Some(sr) = guard.as_ref() {
+                                    if let Some(rate) = sr.update_and_check_changed(traffic.up, traffic.down) {
+                                        let _ = Tray::global().update_icon(Some(rate));
+                                    }
                                 }
                             }
                         }
