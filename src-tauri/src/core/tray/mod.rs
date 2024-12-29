@@ -302,6 +302,7 @@ impl Tray {
 
     /// 取消订阅 traffic 数据
     #[cfg(target_os = "macos")]
+    #[allow(unused)]
     pub fn unsubscribe_traffic(&self) {
         println!("unsubscribe_traffic");
         if let Some(tx) = self.shutdown_tx.write().take() {

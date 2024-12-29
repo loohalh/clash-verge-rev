@@ -106,11 +106,18 @@ pub async fn resolve_setup(app: &mut App) {
     log_err!(tray::Tray::global().update_part());
     log_err!(hotkey::Hotkey::global().init());
     log_err!(timer::Timer::global().init());
+
+    // 流量订阅
+    #[cfg(target_os = "macos")]
+    log_err!(tray::Tray::global().subscribe_traffic().await);
 }
 
 /// reset system proxy
 pub fn resolve_reset() {
     tauri::async_runtime::block_on(async move {
+        #[cfg(target_os = "macos")]
+        tray::Tray::global().unsubscribe_traffic();
+
         log_err!(sysopt::Sysopt::global().reset_sysproxy().await);
         log_err!(CoreManager::global().stop_core().await);
         #[cfg(target_os = "macos")]
