@@ -158,6 +158,7 @@ impl Traffic {
 
                     match tokio_tungstenite::connect_async(&ws_url).await {
                         Ok((ws_stream, _)) => {
+                            log::info!(target: "app", "traffic ws connection established");
                             return Some((
                                 ws_stream.map(|msg| {
                                     msg.map_err(anyhow::Error::from).and_then(|msg: Message| {
@@ -173,6 +174,7 @@ impl Traffic {
                             ));
                         }
                         Err(e) => {
+                            log::error!(target: "app", "traffic ws connection failed: {e}");
                             tokio::time::sleep(Duration::from_secs(5)).await;
                             continue;
                         }
