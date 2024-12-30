@@ -270,7 +270,7 @@ impl Tray {
     /// 订阅流量数据
     #[cfg(target_os = "macos")]
     pub async fn subscribe_traffic(&self) -> Result<()> {
-        println!("subscribe_traffic");
+        log::info!(target: "app", "subscribe traffic");
         let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
         *self.shutdown_tx.write() = Some(shutdown_tx);
 
@@ -304,7 +304,7 @@ impl Tray {
     #[cfg(target_os = "macos")]
     #[allow(unused)]
     pub fn unsubscribe_traffic(&self) {
-        println!("unsubscribe_traffic");
+        log::info!(target: "app", "unsubscribe traffic");
         if let Some(tx) = self.shutdown_tx.write().take() {
             drop(tx); // 发送端被丢弃时会自动发送关闭信号
         }
