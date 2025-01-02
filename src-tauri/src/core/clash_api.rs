@@ -152,3 +152,40 @@ fn test_parse_check_output() {
 
     assert_eq!(res1, res3);
 }
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ProxyProvider {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub provider_type: String,
+    pub vehicle_type: String,
+    pub proxies: Vec<Proxy>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Proxy {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub proxy_type: String,
+    pub history: Vec<DelayHistory>,
+    pub alive: bool,
+    pub udp: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DelayHistory {
+    pub time: String,
+    pub delay: u64,
+}
+
+/// GET /providers/proxies
+pub async fn get_proxy_providers() -> Result<HashMap<String, ProxyProvider>> {
+    let (url, headers) = clash_client_info()?;
+    let url = format!("{url}/providers/proxies");
+
+    let client = reqwest::ClientBuilder::new().no_proxy().build()?;
+    let builder = client.get(&url).headers(headers);
+    let response = builder.send().await?;
+
+    Ok(response.json::<HashMap<String, ProxyProvider>>().await?)
+}
