@@ -1,0 +1,14 @@
+Advanced Configuration
+Common Configuration
+Control port value
+Controller address copied to clipboard
+Disable TCP Keep Alive
+Domain-specific DNS server
+Global TLS fingerprint, takes precedence over client-fingerprint in proxy
+Global User-Agent, takes precedence over client-UA in proxy
+Please enter 0 or a positive integer
+TCP Keep Alive
+TCP Keep Idle
+The interval for TCP Keep Alive packets, measured in seconds
+The maximum idle time for TCP Keep Alive
+Whether to follow nameserver policy

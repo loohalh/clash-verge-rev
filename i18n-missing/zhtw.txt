@@ -1,0 +1,10 @@
+Advanced Configuration
+Common Configuration
+Control port value
+Controller address copied to clipboard
+Disable TCP Keep Alive
+Please enter 0 or a positive integer
+TCP Keep Alive
+TCP Keep Idle
+The interval for TCP Keep Alive packets, measured in seconds
+The maximum idle time for TCP Keep Alive
