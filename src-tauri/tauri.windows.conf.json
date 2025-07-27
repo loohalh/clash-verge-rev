@@ -8,8 +8,7 @@
       "digestAlgorithm": "sha256",
       "timestampUrl": "",
       "webviewInstallMode": {
-        "type": "embedBootstrapper",
-        "silent": true
+        "type": "downloadBootstrapper"
       },
       "nsis": {
         "displayLanguageSelector": true,
@@ -17,6 +16,11 @@
         "languages": ["SimpChinese", "English"],
         "installMode": "perMachine",
         "template": "./packages/windows/installer.nsi"
+      },
+      "wix": {
+        "language": ["en-US", "zh-CN", "zh-TW", "ru-RU"],
+        "fragmentPaths": ["./packages/windows/main.wxs"],
+        "componentRefs": ["ApplicationShortcutDesktop"]
       }
     }
   },

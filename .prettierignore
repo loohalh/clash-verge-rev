@@ -3,6 +3,7 @@
 # CONTRIBUTING.md
 
 pnpm-lock.yaml
+src-tauri/packages/windows/main.wxs
 
 src-tauri/target/
 src-tauri/gen/

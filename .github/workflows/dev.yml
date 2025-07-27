@@ -8,6 +8,11 @@ on:
         required: false
         type: boolean
         default: true
+      run_windows_msi:
+        description: "运行 Windows MSI"
+        required: false
+        type: boolean
+        default: true
       run_macos_aarch64:
         description: "运行 macOS aarch64"
         required: false
@@ -40,6 +45,11 @@ jobs:
             bundle: nsis
             id: windows
             input: run_windows
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundle: msi
+            id: windows-msi
+            input: run_windows_msi
           - os: macos-latest
             target: aarch64-apple-darwin
             bundle: dmg
@@ -95,6 +105,13 @@ jobs:
       - name: Release ${{ env.TAG_CHANNEL }} Version
         run: pnpm release-version ${{ env.TAG_NAME }}
 
+      - name: Set TAURI_BUNDLER_WIX_FIPS_COMPLIANT for Windows MSI
+        if: matrix.os == 'windows-latest' && matrix.bundle == 'msi' && github.event.inputs[matrix.input] == 'true'
+        shell: pwsh
+        run: |
+          $env:TAURI_BUNDLER_WIX_FIPS_COMPLIANT = "true"
+          echo "TAURI_BUNDLER_WIX_FIPS_COMPLIANT set to $env:TAURI_BUNDLER_WIX_FIPS_COMPLIANT"
+
       - name: Tauri build
         if: github.event.inputs[matrix.input] == 'true'
         uses: tauri-apps/tauri-action@v0
@@ -122,9 +139,17 @@ jobs:
           if-no-files-found: error
 
       - name: Upload Artifacts
-        if: matrix.os == 'windows-latest' && github.event.inputs[matrix.input] == 'true'
+        if: matrix.os == 'windows-latest' && matrix.bundle == 'nsis' && github.event.inputs[matrix.input] == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}
           path: src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
+          if-no-files-found: error
+
+      - name: Upload Artifacts
+        if: matrix.os == 'windows-latest' && matrix.bundle == 'msi' && github.event.inputs[matrix.input] == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}-msi
+          path: src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi
           if-no-files-found: error
