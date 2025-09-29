@@ -356,8 +356,8 @@ async fn check_service_version() -> Result<String> {
             );
             let response = send_ipc_request_get(IpcCommand::GetVersion).await?;
 
-            let version = response.body()?;
-            Ok(version)
+            let version = response.json_value()?;
+            Ok(version["version"].as_str().unwrap_or_default().to_string())
         })
         .await;
 
@@ -630,27 +630,6 @@ async fn send_ipc_request_get(command: IpcCommand) -> Result<HttpResponse> {
     )?;
     let response = client.get(command.as_ref()).send().await?;
     Ok(response)
-    // let current_service_status = {
-    //     let guard = SERVICE_MANAGER.lock().await;
-    //     guard.current()
-    // };
-
-    // match current_service_status {
-    //     ServiceStatus::Ready => {
-    //         let client = kode_bridge::IpcHttpClient::with_config(
-    //             clash_verge_service_ipc::IPC_PATH,
-    //             IpcManager::config(),
-    //         )?;
-    //         let response = client.get(command.as_ref()).send().await?;
-    //         Ok(response)
-    //     }
-    //     ServiceStatus::Unavailable(reason) => {
-    //         return Err(anyhow::anyhow!("Service Unvailable: {reason}"));
-    //     }
-    //     _ => {
-    //         return Err(anyhow::Error::msg("Service Is Pendding Now"));
-    //     }
-    // }
 }
 
 async fn send_ipc_request_delete(command: IpcCommand) -> Result<HttpResponse> {
