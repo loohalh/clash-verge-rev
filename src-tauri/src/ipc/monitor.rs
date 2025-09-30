@@ -82,13 +82,6 @@ where
             .await
             .latest_ref()
             .get_external_controller_ipc();
-        logging!(
-            info,
-            Type::Ipc,
-            true,
-            "Using IPC path: {}",
-            current_ipc_path
-        );
         let client = IpcStreamClient::new(&current_ipc_path)?;
         Ok(client)
     }
