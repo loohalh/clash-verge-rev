@@ -478,10 +478,10 @@ impl ServiceManager {
 
     pub fn config() -> ClientConfig {
         ClientConfig {
-            default_timeout: Duration::from_millis(2_000),
+            default_timeout: Duration::from_millis(100),
             enable_pooling: false,
-            max_retries: 10,
-            retry_delay: Duration::from_millis(125),
+            max_retries: 3,
+            retry_delay: Duration::from_millis(20),
             max_concurrent_requests: 16,
             max_requests_per_second: Some(64.0),
             ..Default::default()
