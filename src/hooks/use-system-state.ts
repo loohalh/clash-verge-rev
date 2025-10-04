@@ -8,26 +8,21 @@ import { getRunningMode, isAdmin, isServiceAvailable } from "@/services/cmds";
  */
 export function useSystemState() {
   // 获取运行模式
-  const { data: runningMode = "Sidecar", mutate: mutateRunningMode } = useSWR(
-    "getRunningMode",
-    getRunningMode,
-    {
-      suspense: false,
-      revalidateOnFocus: false,
-    },
-  );
+  const {
+    data: runningMode = "Sidecar",
+    mutate: mutateRunningMode,
+    isLoading: runningModeLoading,
+  } = useSWR("getRunningMode", getRunningMode, {
+    suspense: false,
+    revalidateOnFocus: false,
+  });
   const isSidecarMode = runningMode === "Sidecar";
   const isServiceMode = runningMode === "Service";
 
   // 获取管理员状态
-  const { data: isAdminMode = false } = useSWR("isAdmin", isAdmin, {
-    suspense: false,
-    revalidateOnFocus: false,
-  });
-
-  const { data: isServiceOk = false, mutate: mutateServiceOk } = useSWR(
-    "isServiceAvailable",
-    isServiceAvailable,
+  const { data: isAdminMode = false, isLoading: isAdminLoading } = useSWR(
+    "isAdmin",
+    isAdmin,
     {
       suspense: false,
       revalidateOnFocus: false,
@@ -41,6 +36,25 @@ export function useSystemState() {
     },
   );
 
+  const {
+    data: isServiceOk = false,
+    mutate: mutateServiceOk,
+    isLoading: isServiceLoading,
+  } = useSWR(isServiceMode ? "isServiceAvailable" : null, isServiceAvailable, {
+    suspense: false,
+    revalidateOnFocus: false,
+    onSuccess: (data) => {
+      console.log("[useSystemState] 服务状态更新:", data);
+    },
+    onError: (error) => {
+      console.error("[useSystemState] 服务状态检查失败:", error);
+    },
+    // isPaused: () => !isServiceMode, // 仅在非 Service 模式下暂停请求
+  });
+
+  const isLoading =
+    runningModeLoading || isAdminLoading || (isServiceMode && isServiceLoading);
+
   const isTunModeAvailable = isAdminMode || isServiceOk;
 
   return {
@@ -52,5 +66,6 @@ export function useSystemState() {
     isTunModeAvailable: isTunModeAvailable,
     mutateRunningMode,
     mutateServiceOk,
+    isLoading,
   };
 }
