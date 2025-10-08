@@ -4,7 +4,13 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate, useRoutes } from "react-router-dom";
 import { SWRConfig, mutate } from "swr";
@@ -413,7 +419,7 @@ const Layout = () => {
         console.log("[Layout] 开始监听启动完成事件");
       } catch (err) {
         console.error("[Layout] 监听启动完成事件失败:", err);
-        return () => { };
+        return () => {};
       }
     };
 
@@ -444,7 +450,7 @@ const Layout = () => {
       if (!isInitialized) {
         console.error("[Layout] 紧急初始化触发：5秒内未完成初始化");
         removeLoadingOverlay();
-        notifyBackend("UI就绪").catch(() => { });
+        notifyBackend("UI就绪").catch(() => {});
         isInitialized = true;
       }
     }, 5000);
@@ -559,11 +565,11 @@ const Layout = () => {
             ({ palette }) => ({ bgcolor: palette.background.paper }),
             OS === "linux"
               ? {
-                borderRadius: "8px",
-                border: "1px solid var(--divider-color)",
-                width: "100vw",
-                height: "100vh",
-              }
+                  borderRadius: "8px",
+                  border: "1px solid var(--divider-color)",
+                  width: "100vw",
+                  height: "100vh",
+                }
               : {},
           ]}
         >
