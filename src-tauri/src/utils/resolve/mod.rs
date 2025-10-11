@@ -25,13 +25,6 @@ pub fn resolve_setup_handle() {
     init_handle();
 }
 
-pub fn resolve_setup_sync() {
-    AsyncHandler::spawn(|| async {
-        AsyncHandler::spawn_blocking(init_scheme);
-        AsyncHandler::spawn_blocking(init_embed_server);
-    });
-}
-
 pub fn resolve_setup_async() {
     let start_time = std::time::Instant::now();
     logging!(
@@ -42,14 +35,6 @@ pub fn resolve_setup_async() {
     );
 
     AsyncHandler::spawn(|| async {
-        #[cfg(not(feature = "tauri-dev"))]
-        resolve_setup_logger().await;
-        logging!(
-            info,
-            Type::ClashVergeRev,
-            "Version: {}",
-            env!("CARGO_PKG_VERSION")
-        );
         futures::join!(init_service_manager());
 
         futures::join!(
@@ -91,6 +76,13 @@ pub fn resolve_setup_async() {
     }
 }
 
+pub fn resolve_setup_sync() {
+    AsyncHandler::spawn(|| async {
+        AsyncHandler::spawn_blocking(init_scheme);
+        AsyncHandler::spawn_blocking(init_embed_server);
+    });
+}
+
 // 其它辅助函数不变
 pub async fn resolve_reset_async() -> Result<(), anyhow::Error> {
     logging!(info, Type::Tray, "Resetting system proxy");
@@ -121,9 +113,11 @@ pub(super) fn init_scheme() {
 }
 
 #[cfg(not(feature = "tauri-dev"))]
-pub(super) async fn resolve_setup_logger() {
-    logging!(info, Type::Setup, "Initializing global logger...");
-    logging_error!(Type::Setup, init::init_logger().await);
+pub async fn resolve_setup_logger() {
+    println!("[Setup] Initializing global logger...");
+    if let Err(e) = init::init_logger().await {
+        println!("[Setup] Failed to setup global logger {e}");
+    }
 }
 
 pub async fn resolve_scheme(param: String) -> Result<()> {
