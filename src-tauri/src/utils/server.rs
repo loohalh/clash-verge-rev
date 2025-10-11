@@ -3,7 +3,7 @@ use crate::{
     config::{Config, DEFAULT_PAC, IVerge},
     logging_error,
     process::AsyncHandler,
-    utils::logging::Type,
+    utils::{logging::Type, window_manager::WindowManager},
 };
 use anyhow::{Result, bail};
 use once_cell::sync::OnceCell;
@@ -57,6 +57,7 @@ pub fn embed_server() {
 
     AsyncHandler::spawn(move || async move {
         let visible = warp::path!("commands" / "visible").and_then(|| async {
+            logging_error!(Type::Setup, "{:?}", WindowManager::show_main_window().await);
             Ok::<_, warp::Rejection>(warp::reply::with_status(
                 "ok".to_string(),
                 warp::http::StatusCode::OK,
