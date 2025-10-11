@@ -35,17 +35,15 @@ mod app_init {
     pub async fn init_singleton_check() {
         logging!(info, Type::Setup, "开始检查单例实例...");
         match timeout(Duration::from_millis(500), server::check_singleton()).await {
-            Ok(result) => {
-                if result.is_err() {
-                    logging!(info, Type::Setup, "检测到已有应用实例运行");
-                    if let Some(app_handle) = APP_HANDLE.get() {
-                        app_handle.exit(0);
-                    } else {
-                        std::process::exit(0);
-                    }
-                } else {
-                    logging!(info, Type::Setup, "未检测到其他应用实例");
+            Ok(Ok(())) => {
+                logging!(info, Type::Setup, "未检测到其他应用实例");
+            }
+            Ok(Err(_)) => {
+                logging!(info, Type::Setup, "检测到已有应用实例运行，准备退出...");
+                if let Some(app_handle) = APP_HANDLE.get() {
+                    app_handle.exit(1);
                 }
+                std::process::exit(1);
             }
             Err(_) => {
                 logging!(warn, Type::Setup, "单例检查超时，假定没有其他实例运行");
@@ -328,12 +326,12 @@ pub fn run() {
 
             {
                 let rt = tokio::runtime::Runtime::new().unwrap();
+                rt.block_on(async {
+                    app_init::init_singleton_check().await;
+                });
                 #[cfg(not(feature = "tauri-dev"))]
                 rt.block_on(async {
                     resolve::resolve_setup_logger().await;
-                });
-                rt.block_on(async {
-                    app_init::init_singleton_check().await;
                 });
             }
 

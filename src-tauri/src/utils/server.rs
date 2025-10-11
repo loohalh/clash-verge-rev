@@ -23,26 +23,26 @@ static SHUTDOWN_SENDER: OnceCell<Mutex<Option<oneshot::Sender<()>>>> = OnceCell:
 /// check whether there is already exists
 pub async fn check_singleton() -> Result<()> {
     let port = IVerge::get_singleton_port();
-    if !local_port_available(port) {
-        let argvs: Vec<String> = std::env::args().collect();
-        if argvs.len() > 1 {
-            #[cfg(not(target_os = "macos"))]
-            {
-                let param = argvs[1].as_str();
-                if param.starts_with("clash:") {
-                    let _ = reqwest::get(format!(
-                        "http://127.0.0.1:{port}/commands/scheme?param={param}"
-                    ))
-                    .await;
-                }
-            }
-        } else {
-            let _ = reqwest::get(format!("http://127.0.0.1:{port}/commands/visible")).await;
-        }
-        log::error!("failed to setup singleton listen server");
-        bail!("app exists");
+    if local_port_available(port) {
+        return Ok(());
     }
-    Ok(())
+    let argvs: Vec<String> = std::env::args().collect();
+    if argvs.len() > 1 {
+        #[cfg(not(target_os = "macos"))]
+        {
+            let param = argvs[1].as_str();
+            if param.starts_with("clash:") {
+                let _ = reqwest::get(format!(
+                    "http://127.0.0.1:{port}/commands/scheme?param={param}"
+                ))
+                .await;
+            }
+        }
+        return Ok(());
+    }
+    let _ = reqwest::get(format!("http://127.0.0.1:{port}/commands/visible")).await;
+    log::error!("failed to setup singleton listen server");
+    Err(anyhow::Error::msg("app exists"))
 }
 
 /// The embed server only be used to implement singleton process
