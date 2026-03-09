@@ -67,16 +67,18 @@ export const ProxyRender = (props: RenderProps) => {
       return null;
     }
 
-    return proxyCol.map((proxyItem) => (
-      <ProxyItemMini
-        key={`${item.key}-${proxyItem?.name ?? "unknown"}`}
-        group={group}
-        proxy={proxyItem!}
-        selected={group.now === proxyItem?.name}
-        showType={headState?.showType}
-        onClick={() => onChangeProxy(group, proxyItem!)}
-      />
-    ));
+    return proxyCol
+      .filter((proxyItem) => proxyItem?.name)
+      .map((proxyItem) => (
+        <ProxyItemMini
+          key={`${item.key}-${proxyItem.name}`}
+          group={group}
+          proxy={proxyItem}
+          selected={group.now === proxyItem.name}
+          showType={headState?.showType}
+          onClick={() => onChangeProxy(group, proxyItem)}
+        />
+      ));
   }, [type, proxyCol, item.key, group, headState, onChangeProxy]);
 
   if (type === 0) {
@@ -147,7 +149,7 @@ export const ProxyRender = (props: RenderProps) => {
           <Tooltip title={t("proxies.page.labels.proxyCount")} arrow>
             <Chip
               size="small"
-              label={`${group.all.length}`}
+              label={`${group.all?.length ?? 0}`}
               sx={{
                 mr: 1,
                 backgroundColor: (theme) =>
@@ -177,14 +179,15 @@ export const ProxyRender = (props: RenderProps) => {
   }
 
   if (type === 2) {
+    if (!proxy?.name) return null;
     return (
       <ProxyItem
         group={group}
-        proxy={proxy!}
-        selected={group.now === proxy?.name}
+        proxy={proxy}
+        selected={group.now === proxy.name}
         showType={headState?.showType}
         sx={{ py: 0, pl: 2 }}
-        onClick={() => onChangeProxy(group, proxy!)}
+        onClick={() => onChangeProxy(group, proxy)}
       />
     );
   }

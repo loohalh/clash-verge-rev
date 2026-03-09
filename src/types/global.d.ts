@@ -882,7 +882,8 @@ interface IProxyConfig
     | "vmess"
     | "vless"
     | "mieru"
-    | "sudoku";
+    | "sudoku"
+    | (string & {}); // allow unknown protocol types
 }
 
 interface IVergeConfig {

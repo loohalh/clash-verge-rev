@@ -181,9 +181,12 @@ export const useRenderList = (
     // 链式代理模式下，显示代理组和其节点
     if (isChainMode && runtimeConfig && mode === "rule") {
       // 使用正常的规则模式代理组
-      const allGroups = proxiesData.groups.length
-        ? proxiesData.groups
-        : [proxiesData.global!];
+      const allGroups =
+        proxiesData.groups?.length > 0
+          ? proxiesData.groups
+          : proxiesData.global
+            ? [proxiesData.global]
+            : [];
 
       // 如果选择了特定代理组，只显示该组的节点
       if (selectedGroup) {
@@ -192,7 +195,7 @@ export const useRenderList = (
         );
         if (targetGroup) {
           const proxies = filterSort(
-            targetGroup.all,
+            targetGroup.all ?? [],
             targetGroup.name,
             "",
             0,
@@ -210,13 +213,13 @@ export const useRenderList = (
               provider: proxyCol[0]?.provider,
             }));
           } else {
-            return proxies.map((proxy) => ({
+            return proxies.map((proxy, idx) => ({
               type: 2,
-              key: `chain-${selectedGroup}-${proxy!.name}`,
+              key: `chain-${selectedGroup}-${proxy?.name ?? idx}`,
               group: targetGroup,
               proxy,
               headState: DEFAULT_STATE,
-              provider: proxy.provider,
+              provider: proxy?.provider,
             }));
           }
         }
@@ -227,7 +230,7 @@ export const useRenderList = (
       if (allGroups.length > 0) {
         const firstGroup = allGroups[0];
         const proxies = filterSort(
-          firstGroup.all,
+          firstGroup.all ?? [],
           firstGroup.name,
           "",
           0,
@@ -245,34 +248,37 @@ export const useRenderList = (
             provider: proxyCol[0]?.provider,
           }));
         } else {
-          return proxies.map((proxy) => ({
+          return proxies.map((proxy, idx) => ({
             type: 2,
-            key: `chain-first-${proxy!.name}`,
+            key: `chain-first-${proxy?.name ?? idx}`,
             group: firstGroup,
             proxy,
             headState: DEFAULT_STATE,
-            provider: proxy.provider,
+            provider: proxy?.provider,
           }));
         }
       }
 
       // 如果没有组，显示所有节点
       const allProxies: IProxyItem[] = allGroups.flatMap(
-        (group: any) => group.all,
+        (group: any) => group.all ?? [],
       );
 
       // 为每个节点获取延迟信息
-      const proxiesWithDelay = allProxies.map((proxy) => {
-        const delay = delayManager.getDelay(proxy.name, "chain-mode");
-        return {
-          ...proxy,
-          // 如果delayManager有延迟数据，更新history
-          history:
-            delay >= 0
-              ? [{ time: new Date().toISOString(), delay }]
-              : proxy.history || [],
-        };
-      });
+      const proxiesWithDelay = allProxies
+        .filter((proxy) => proxy?.name)
+        .map((proxy) => {
+          const delay = delayManager.getDelay(proxy.name, "chain-mode");
+          return {
+            ...proxy,
+            history:
+              delay >= 0
+                ? [{ time: new Date().toISOString(), delay }]
+                : Array.isArray(proxy.history)
+                  ? proxy.history
+                  : [],
+          };
+        });
 
       // 创建一个虚拟的组来容纳所有节点
       const virtualGroup: ProxyGroup = {
@@ -301,39 +307,37 @@ export const useRenderList = (
           }),
         );
       } else {
-        return proxiesWithDelay.map((proxy) => ({
+        return proxiesWithDelay.map((proxy, idx) => ({
           type: 2,
-          key: `chain-all-${proxy.name}`,
+          key: `chain-all-${proxy?.name ?? idx}`,
           group: virtualGroup,
           proxy,
           headState: DEFAULT_STATE,
-          provider: proxy.provider,
+          provider: proxy?.provider,
         }));
       }
     }
 
     // 链式代理模式下的其他模式（如global）仍显示所有节点
     if (isChainMode && runtimeConfig) {
-      // 从运行时配置直接获取 proxies 列表 (需要类型断言)
-      const allProxies: IProxyItem[] = Object.values(
-        (runtimeConfig as any).proxies || {},
-      );
+      const allProxies = (
+        Object.values((runtimeConfig as any).proxies || {}) as IProxyItem[]
+      ).filter((p) => p?.name);
 
-      // 为每个节点获取延迟信息
-      const proxiesWithDelay = allProxies.map((proxy) => {
+      const proxiesWithDelay2 = allProxies.map((proxy) => {
         const delay = delayManager.getDelay(proxy.name, "chain-mode");
         return {
           ...proxy,
-          // 如果delayManager有延迟数据，更新history
           history:
             delay >= 0
               ? [{ time: new Date().toISOString(), delay }]
-              : proxy.history || [],
+              : Array.isArray(proxy.history)
+                ? proxy.history
+                : [],
         };
       });
 
-      // 创建一个虚拟的组来容纳所有节点
-      const virtualGroup: ProxyGroup = {
+      const virtualGroup2: ProxyGroup = {
         name: "All Proxies",
         type: "Selector",
         udp: false,
@@ -343,16 +347,15 @@ export const useRenderList = (
         smux: false,
         history: [],
         now: "",
-        all: proxiesWithDelay,
+        all: proxiesWithDelay2,
       };
 
-      // 返回节点列表（不显示组头）
       if (col > 1) {
-        return groupProxies(proxiesWithDelay, col).map(
+        return groupProxies(proxiesWithDelay2, col).map(
           (proxyCol, colIndex) => ({
             type: 4,
             key: `chain-col-${colIndex}`,
-            group: virtualGroup,
+            group: virtualGroup2,
             headState: DEFAULT_STATE,
             col,
             proxyCol,
@@ -360,13 +363,13 @@ export const useRenderList = (
           }),
         );
       } else {
-        return proxiesWithDelay.map((proxy) => ({
+        return proxiesWithDelay2.map((proxy, idx) => ({
           type: 2,
-          key: `chain-${proxy.name}`,
-          group: virtualGroup,
+          key: `chain-${proxy?.name ?? idx}`,
+          group: virtualGroup2,
           proxy,
           headState: DEFAULT_STATE,
-          provider: proxy.provider,
+          provider: proxy?.provider,
         }));
       }
     }
@@ -374,78 +377,82 @@ export const useRenderList = (
     // 正常模式的渲染逻辑
     const useRule = mode === "rule" || mode === "script";
     const renderGroups =
-      useRule && proxiesData.groups.length
+      useRule && proxiesData.groups?.length
         ? proxiesData.groups
-        : [proxiesData.global!];
+        : proxiesData.global
+          ? [proxiesData.global]
+          : [];
 
-    const retList = renderGroups.flatMap((group: ProxyGroup) => {
-      const headState = headStates[group.name] || DEFAULT_STATE;
-      const ret: IRenderItem[] = [
-        {
-          type: 0,
-          key: group.name,
-          group,
-          headState,
-          icon: group.icon,
-          testUrl: group.testUrl,
-        },
-      ];
-
-      if (headState?.open || !useRule) {
-        const proxies = filterSort(
-          group.all,
-          group.name,
-          headState.filterText,
-          headState.sortType,
-          latencyTimeout,
+    const retList = renderGroups
+      .filter((group: ProxyGroup) => group?.name)
+      .flatMap((group: ProxyGroup) => {
+        const headState = headStates[group.name] || DEFAULT_STATE;
+        const ret: IRenderItem[] = [
           {
-            matchCase: headState.filterMatchCase,
-            matchWholeWord: headState.filterMatchWholeWord,
-            useRegularExpression: headState.filterUseRegularExpression,
+            type: 0,
+            key: group.name,
+            group,
+            headState,
+            icon: group.icon,
+            testUrl: group.testUrl,
           },
-        );
+        ];
 
-        ret.push({
-          type: 1,
-          key: `head-${group.name}`,
-          group,
-          headState,
-        });
+        if (headState?.open || !useRule) {
+          const proxies = filterSort(
+            group.all ?? [],
+            group.name,
+            headState.filterText,
+            headState.sortType,
+            latencyTimeout,
+            {
+              matchCase: headState.filterMatchCase,
+              matchWholeWord: headState.filterMatchWholeWord,
+              useRegularExpression: headState.filterUseRegularExpression,
+            },
+          );
 
-        if (!proxies.length) {
           ret.push({
-            type: 3,
-            key: `empty-${group.name}`,
+            type: 1,
+            key: `head-${group.name}`,
             group,
             headState,
           });
-        } else if (col > 1) {
-          return ret.concat(
-            groupProxies(proxies, col).map((proxyCol, colIndex) => ({
-              type: 4,
-              key: `col-${group.name}-${proxyCol[0].name}-${colIndex}`,
+
+          if (!proxies.length) {
+            ret.push({
+              type: 3,
+              key: `empty-${group.name}`,
               group,
               headState,
-              col,
-              proxyCol,
-              provider: proxyCol[0].provider,
-            })),
-          );
-        } else {
-          return ret.concat(
-            proxies.map((proxy) => ({
-              type: 2,
-              key: `${group.name}-${proxy!.name}`,
-              group,
-              proxy,
-              headState,
-              provider: proxy.provider,
-            })),
-          );
+            });
+          } else if (col > 1) {
+            return ret.concat(
+              groupProxies(proxies, col).map((proxyCol, colIndex) => ({
+                type: 4,
+                key: `col-${group.name}-${proxyCol[0]?.name ?? colIndex}-${colIndex}`,
+                group,
+                headState,
+                col,
+                proxyCol,
+                provider: proxyCol[0]?.provider,
+              })),
+            );
+          } else {
+            return ret.concat(
+              proxies.map((proxy, idx) => ({
+                type: 2,
+                key: `${group.name}-${proxy?.name ?? idx}`,
+                group,
+                proxy,
+                headState,
+                provider: proxy?.provider,
+              })),
+            );
+          }
         }
-      }
-      return ret;
-    });
+        return ret;
+      });
 
     if (!useRule) return retList.slice(1);
     return retList.filter((item: IRenderItem) => !item.group.hidden);

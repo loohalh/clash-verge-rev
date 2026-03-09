@@ -125,6 +125,7 @@ function filterProxies(
   filterText: string,
   searchState?: ProxySearchState,
 ) {
+  if (!Array.isArray(proxies)) return [];
   const query = filterText.trim();
   if (!query) return proxies;
 
@@ -136,6 +137,7 @@ function filterProxies(
       symbol2 === "error" ? 1e5 : symbol2 === "timeout" ? 3000 : +symbol2;
 
     return proxies.filter((p) => {
+      if (!p) return false;
       const delay = delayManager.getDelayFix(p, groupName);
 
       if (delay < 0) return false;
@@ -152,7 +154,7 @@ function filterProxies(
   const res2 = regex2.exec(query);
   if (res2) {
     const type = res2[1].toLowerCase();
-    return proxies.filter((p) => p.type.toLowerCase().includes(type));
+    return proxies.filter((p) => p?.type?.toLowerCase().includes(type));
   }
 
   const {
@@ -167,7 +169,7 @@ function filterProxies(
   });
 
   if (!compiled.isValid) return [];
-  return proxies.filter((p) => compiled.matcher(p.name));
+  return proxies.filter((p) => p?.name && compiled.matcher(p.name));
 }
 
 /**
@@ -179,7 +181,7 @@ function sortProxies(
   sortType: ProxySortType,
   latencyTimeout?: number,
 ) {
-  if (!proxies) return [];
+  if (!Array.isArray(proxies) || !proxies.length) return [];
   if (sortType === 0) return proxies;
 
   const list = proxies.slice();

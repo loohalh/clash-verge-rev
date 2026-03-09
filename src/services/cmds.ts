@@ -137,19 +137,28 @@ export async function calcuProxies(): Promise<{
   );
 
   // compatible with proxy-providers
+  // Normalize a proxy item to ensure all required fields exist,
+  // preventing crashes when unknown protocol types (e.g. TrustTunnel) return incomplete data.
+  const normalizeProxy = (p: any): IProxyItem => ({
+    name: p?.name ?? "unknown",
+    type: p?.type ?? "unknown",
+    udp: !!p?.udp,
+    xudp: !!p?.xudp,
+    tfo: !!p?.tfo,
+    mptcp: !!p?.mptcp,
+    smux: !!p?.smux,
+    history: Array.isArray(p?.history) ? p.history : [],
+    ...(p?.provider != null && { provider: p.provider }),
+    ...(p?.testUrl != null && { testUrl: p.testUrl }),
+    ...(p?.now != null && { now: p.now }),
+    ...(p?.hidden != null && { hidden: p.hidden }),
+    ...(p?.icon != null && { icon: p.icon }),
+    ...(p?.fixed != null && { fixed: p.fixed }),
+  });
+
   const generateItem = (name: string) => {
-    if (proxyRecord[name]) return proxyRecord[name];
-    if (providerMap[name]) return providerMap[name];
-    return {
-      name,
-      type: "unknown",
-      udp: false,
-      xudp: false,
-      tfo: false,
-      mptcp: false,
-      smux: false,
-      history: [],
-    };
+    const raw = proxyRecord[name] ?? providerMap[name];
+    return normalizeProxy(raw ?? { name });
   };
 
   const { GLOBAL: global, DIRECT: direct, REJECT: reject } = proxyRecord;
@@ -157,21 +166,25 @@ export async function calcuProxies(): Promise<{
   let groups: IProxyGroupItem[] = Object.values(proxyRecord).reduce<
     IProxyGroupItem[]
   >((acc, each) => {
-    if (each?.name !== "GLOBAL" && each?.all) {
+    if (
+      each?.name !== "GLOBAL" &&
+      Array.isArray(each?.all) &&
+      each.all.length > 0
+    ) {
       acc.push({
         ...each,
-        all: each.all!.map((item) => generateItem(item)),
+        all: each.all.map((item) => generateItem(item)),
       });
     }
 
     return acc;
   }, []);
 
-  if (global?.all) {
+  if (global?.all && Array.isArray(global.all)) {
     const globalGroups: IProxyGroupItem[] = global.all.reduce<
       IProxyGroupItem[]
     >((acc, name) => {
-      if (proxyRecord[name]?.all) {
+      if (proxyRecord[name] && Array.isArray(proxyRecord[name].all)) {
         acc.push({
           ...proxyRecord[name],
           all: proxyRecord[name].all!.map((item) => generateItem(item)),
@@ -188,15 +201,24 @@ export async function calcuProxies(): Promise<{
       .concat(globalGroups);
   }
 
-  const proxies = [direct, reject].concat(
-    Object.values(proxyRecord).filter(
-      (p) => !p?.all?.length && p?.name !== "DIRECT" && p?.name !== "REJECT",
-    ),
-  );
+  const proxies = [direct, reject]
+    .filter(Boolean)
+    .concat(
+      Object.values(proxyRecord).filter(
+        (p) =>
+          p &&
+          (!Array.isArray(p.all) || p.all.length === 0) &&
+          p.name !== "DIRECT" &&
+          p.name !== "REJECT",
+      ),
+    )
+    .map(normalizeProxy);
 
   const _global = {
     ...global,
-    all: global?.all?.map((item) => generateItem(item)) || [],
+    all: Array.isArray(global?.all)
+      ? global.all.map((item) => generateItem(item))
+      : [],
   };
 
   return {

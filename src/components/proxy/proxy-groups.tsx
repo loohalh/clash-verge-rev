@@ -496,19 +496,25 @@ export const ProxyGroups = (props: Props) => {
                 Footer: VirtuosoFooter,
               }}
               initialScrollTop={scrollPositionRef.current[mode]}
-              computeItemKey={(index) => renderList[index].key}
-              itemContent={(index) => (
-                <ProxyRender
-                  key={renderList[index].key}
-                  item={renderList[index]}
-                  indent={mode === "rule" || mode === "script"}
-                  onLocation={handleLocation}
-                  onCheckAll={handleCheckAll}
-                  onHeadState={onHeadState}
-                  onChangeProxy={handleChangeProxy}
-                  isChainMode={isChainMode}
-                />
-              )}
+              computeItemKey={(index) =>
+                renderList[index]?.key ?? `fallback-chain-${index}`
+              }
+              itemContent={(index) => {
+                const item = renderList[index];
+                if (!item) return null;
+                return (
+                  <ProxyRender
+                    key={item.key}
+                    item={item}
+                    indent={mode === "rule" || mode === "script"}
+                    onLocation={handleLocation}
+                    onCheckAll={handleCheckAll}
+                    onHeadState={onHeadState}
+                    onChangeProxy={handleChangeProxy}
+                    isChainMode={isChainMode}
+                  />
+                );
+              }}
             />
             <ScrollTopButton show={showScrollTop} onClick={scrollToTop} />
           </Box>
@@ -574,7 +580,7 @@ export const ProxyGroups = (props: Props) => {
                   {group.name}
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
-                  {group.type} · {group.all.length} 节点
+                  {group.type} · {group.all?.length ?? 0} 节点
                 </Typography>
               </Box>
             </MenuItem>
@@ -620,18 +626,24 @@ export const ProxyGroups = (props: Props) => {
         }}
         // 添加平滑滚动设置
         initialScrollTop={scrollPositionRef.current[mode]}
-        computeItemKey={(index) => renderList[index].key}
-        itemContent={(index) => (
-          <ProxyRender
-            key={renderList[index].key}
-            item={renderList[index]}
-            indent={mode === "rule" || mode === "script"}
-            onLocation={handleLocation}
-            onCheckAll={handleCheckAll}
-            onHeadState={onHeadState}
-            onChangeProxy={handleChangeProxy}
-          />
-        )}
+        computeItemKey={(index) =>
+          renderList[index]?.key ?? `fallback-${index}`
+        }
+        itemContent={(index) => {
+          const item = renderList[index];
+          if (!item) return null;
+          return (
+            <ProxyRender
+              key={item.key}
+              item={item}
+              indent={mode === "rule" || mode === "script"}
+              onLocation={handleLocation}
+              onCheckAll={handleCheckAll}
+              onHeadState={onHeadState}
+              onChangeProxy={handleChangeProxy}
+            />
+          );
+        }}
       />
       <ScrollTopButton show={showScrollTop} onClick={scrollToTop} />
     </div>
