@@ -133,8 +133,11 @@ const ProxyControlSwitches = ({
   const { verge, mutateVerge, patchVerge } = useVerge()
   const { installServiceAndRestartCore } = useServiceInstaller()
   const { uninstallServiceAndRestartCore } = useServiceUninstaller()
-  const { indicator: systemProxyIndicator, toggleSystemProxy } =
-    useSystemProxyState()
+  const {
+    indicator: systemProxyIndicator,
+    configState: systemProxyConfigState,
+    toggleSystemProxy,
+  } = useSystemProxyState()
   const { isServiceOk, isTunModeAvailable, mutateSystemState } =
     useSystemState()
 
@@ -188,12 +191,12 @@ const ProxyControlSwitches = ({
       {isSystemProxyMode && (
         <SwitchRow
           label={t('settings.sections.proxyControl.fields.systemProxy')}
-          active={systemProxyIndicator}
+          active={systemProxyConfigState}
           infoTitle={t('settings.sections.proxyControl.tooltips.systemProxy')}
           onInfoClick={() => sysproxyRef.current?.open()}
           onToggle={(value) => toggleSystemProxy(value)}
           onError={onError}
-          highlight={systemProxyIndicator}
+          highlight={systemProxyConfigState || systemProxyIndicator}
         />
       )}
 

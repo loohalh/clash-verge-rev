@@ -7,7 +7,16 @@ use anyhow::{Result, bail};
 use arc_swap::ArcSwap;
 use clash_verge_logging::{Type, logging};
 use smartstring::alias::String;
-use std::{collections::HashMap, fmt, str::FromStr, sync::Arc};
+use std::{
+    collections::HashMap,
+    fmt,
+    future::Future,
+    str::FromStr,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt as _, ShortcutState};
 
 /// Enum representing all available hotkey functions
@@ -24,6 +33,17 @@ pub enum HotkeyFunction {
     Quit,
     #[cfg(target_os = "macos")]
     Hide,
+}
+
+static SYSTEM_PROXY_HOTKEY_RUNNING: AtomicBool = AtomicBool::new(false);
+static TUN_MODE_HOTKEY_RUNNING: AtomicBool = AtomicBool::new(false);
+
+struct HotkeyRunningGuard(&'static AtomicBool);
+
+impl Drop for HotkeyRunningGuard {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
 }
 
 impl fmt::Display for HotkeyFunction {
@@ -106,6 +126,30 @@ impl Hotkey {
         }
     }
 
+    fn spawn_network_toggle<F, Fut>(running: &'static AtomicBool, name: &'static str, task: F)
+    where
+        F: FnOnce() -> Fut + Send + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        if running
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
+            logging!(
+                debug,
+                Type::Hotkey,
+                "{} hotkey is already running, ignoring repeated trigger",
+                name
+            );
+            return;
+        }
+
+        AsyncHandler::spawn(async move || {
+            let _guard = HotkeyRunningGuard(running);
+            task().await;
+        });
+    }
+
     /// Execute the function associated with a hotkey function enum
     fn execute_function(function: HotkeyFunction) {
         match function {
@@ -134,13 +178,13 @@ impl Hotkey {
                 });
             }
             HotkeyFunction::ToggleSystemProxy => {
-                AsyncHandler::spawn(async move || {
+                Self::spawn_network_toggle(&SYSTEM_PROXY_HOTKEY_RUNNING, "System proxy", async move || {
                     let is_proxy_enabled = feat::toggle_system_proxy().await;
                     notify_event(NotificationEvent::SystemProxyToggled(is_proxy_enabled)).await;
                 });
             }
             HotkeyFunction::ToggleTunMode => {
-                AsyncHandler::spawn(async move || {
+                Self::spawn_network_toggle(&TUN_MODE_HOTKEY_RUNNING, "TUN mode", async move || {
                     let is_tun_enable = feat::toggle_tun_mode(None).await;
                     notify_event(NotificationEvent::TunModeToggled(is_tun_enable)).await;
                 });
