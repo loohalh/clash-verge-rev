@@ -1,0 +1,124 @@
+name: Package Manager Install Benchmark
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/install-benchmark.yml'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+
+env:
+  HUSKY: 0
+
+jobs:
+  install-benchmark:
+    name: Compare pnpm and Bun install time
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          run_install: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.15.0'
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Prepare benchmark workspaces
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for name in pnpm bun-migrate bun-ci; do
+            mkdir -p "${RUNNER_TEMP}/${name}"
+            rsync -a --delete \
+              --exclude '.git' \
+              --exclude 'node_modules' \
+              --exclude 'bun.lock' \
+              --exclude 'bun.lockb' \
+              "${GITHUB_WORKSPACE}/" "${RUNNER_TEMP}/${name}/"
+          done
+
+          # Generate a Bun lockfile for the steady-state Bun CI benchmark.
+          (
+            cd "${RUNNER_TEMP}/bun-ci"
+            bun install --lockfile-only
+            rm -rf node_modules
+          )
+
+          # Do not let lockfile generation warm the measured Bun install.
+          bun pm cache rm || true
+
+      - name: Measure install time
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          results="${RUNNER_TEMP}/install-times.tsv"
+          : > "${results}"
+
+          run_benchmark() {
+            local label="$1"
+            local dir="$2"
+            shift 2
+
+            echo "::group::${label}"
+            echo "Running in ${dir}: $*"
+            local start end elapsed
+            start="$(date +%s%3N)"
+            (
+              cd "${dir}"
+              "$@"
+            )
+            end="$(date +%s%3N)"
+            elapsed="$((end - start))"
+            printf '%s\t%s\n' "${label}" "${elapsed}" >> "${results}"
+            echo "${label}: $(awk -v ms="${elapsed}" 'BEGIN { printf "%.3fs", ms / 1000 }')"
+            echo "::endgroup::"
+          }
+
+          run_benchmark \
+            "pnpm install --frozen-lockfile" \
+            "${RUNNER_TEMP}/pnpm" \
+            pnpm install --frozen-lockfile
+
+          bun pm cache rm || true
+          run_benchmark \
+            "bun install from pnpm-lock.yaml" \
+            "${RUNNER_TEMP}/bun-migrate" \
+            bun install
+
+          bun pm cache rm || true
+          run_benchmark \
+            "bun ci from generated bun.lock" \
+            "${RUNNER_TEMP}/bun-ci" \
+            bun ci
+
+          pnpm_ms="$(awk -F '\t' '$1 == "pnpm install --frozen-lockfile" { print $2 }' "${results}")"
+
+          {
+            echo "## Package Manager Install Benchmark"
+            echo
+            echo "No dependency cache is restored before timing. Each command runs in a separate copy of the repository on the same runner."
+            echo
+            echo "| Scenario | Time | Delta vs pnpm |"
+            echo "| --- | ---: | ---: |"
+            while IFS=$'\t' read -r label elapsed; do
+              seconds="$(awk -v ms="${elapsed}" 'BEGIN { printf "%.3fs", ms / 1000 }')"
+              delta="$(awk -v ms="${elapsed}" -v base="${pnpm_ms}" 'BEGIN { printf "%+.3fs", (ms - base) / 1000 }')"
+              echo "| ${label} | ${seconds} | ${delta} |"
+            done < "${results}"
+            echo
+            echo "Notes:"
+            echo "- \`bun install from pnpm-lock.yaml\` measures the current repository state before committing a Bun lockfile."
+            echo "- \`bun ci from generated bun.lock\` approximates steady-state Bun CI after migration."
+          } >> "${GITHUB_STEP_SUMMARY}"
